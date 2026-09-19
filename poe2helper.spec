@@ -54,6 +54,8 @@ a = Analysis(
     ["src/poe2helper/__main__.py"],
     pathex=["src"],
     binaries=[],
+    # Иконки может не быть (tools/make_icon.py не обязателен для работы
+    # программы) — тогда собираемся со стандартной иконкой PyInstaller.
     datas=[(ICON, "resources")] if os.path.exists(ICON) else [],
     hiddenimports=["poe2helper"],
     hookspath=[],

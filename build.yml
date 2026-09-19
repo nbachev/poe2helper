@@ -1,0 +1,101 @@
+name: build-windows
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    # Консоль раннера по умолчанию cp1252, а в скриптах и тестах есть
+    # кириллица. Без этого любой print() с русским текстом роняет шаг.
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+
+    steps:
+      - name: Забрать исходники
+        uses: actions/checkout@v4
+
+      - name: Показать, что лежит в репозитории
+        shell: pwsh
+        run: Get-ChildItem -Recurse -Depth 2 -Name | Select-Object -First 80
+
+      # Файлы могли попасть в репозиторий внутри подпапки — ищем корень
+      # проекта по poe2helper.spec, а не полагаемся на то, что он в корне.
+      - name: Найти корень проекта
+        id: locate
+        shell: pwsh
+        run: |
+          $spec = Get-ChildItem -Recurse -Filter poe2helper.spec |
+                  Sort-Object { $_.FullName.Length } | Select-Object -First 1
+          if (-not $spec) {
+            throw "poe2helper.spec не найден. Похоже, исходники не загружены в репозиторий."
+          }
+          $dir = $spec.Directory.FullName
+          Write-Host "Корень проекта: $dir"
+          "dir=$dir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Поставить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Ставим напрямую, без requirements-файлов: одной точкой отказа меньше.
+      - name: Установить зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install "PySide6>=6.7,<7" "requests>=2.31,<3" "pyinstaller>=6.6,<7"
+
+      - name: Нарисовать иконку
+        working-directory: ${{ steps.locate.outputs.dir }}
+        shell: pwsh
+        run: |
+          if (Test-Path tools/make_icon.py) {
+            python tools/make_icon.py
+          } else {
+            Write-Host "tools/make_icon.py не найден — соберём со стандартной иконкой"
+          }
+
+      - name: Тесты (логика + сборка окон вхолостую)
+        working-directory: ${{ steps.locate.outputs.dir }}
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests -v
+
+      - name: Собрать exe
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: python -m PyInstaller poe2helper.spec --noconfirm --clean
+
+      - name: Положить README рядом с exe
+        working-directory: ${{ steps.locate.outputs.dir }}
+        shell: pwsh
+        run: |
+          if (Test-Path README.md) { Copy-Item README.md dist/PoE2Helper/README.md }
+          "PoE2 Helper - zapusti PoE2Helper.exe" | Out-File -Encoding utf8 dist/PoE2Helper/START-HERE.txt
+
+      # В скачанном ZIP сразу лежит папка PoE2Helper, без «зипа в зипе».
+      - name: Выложить артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: PoE2Helper-windows
+          path: ${{ steps.locate.outputs.dir }}/dist
+          retention-days: 30
+
+      - name: Упаковать в ZIP для релиза
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: ${{ steps.locate.outputs.dir }}
+        shell: pwsh
+        run: Compress-Archive -Path dist/PoE2Helper -DestinationPath $env:GITHUB_WORKSPACE/PoE2Helper-windows.zip
+
+      - name: Создать релиз (только для тега v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PoE2Helper-windows.zip
