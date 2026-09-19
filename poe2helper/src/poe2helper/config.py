@@ -48,6 +48,10 @@ DEFAULTS: dict[str, Any] = {
         # ширина диапазона по умолчанию: min = значение * (1 - roll_tolerance)
         "roll_tolerance": 0.10,
         "use_min_only": True,
+        # Какие параметры вещи включать в поиск сразу (ключи trade2 API:
+        # dps, pdps, edps, crit, aps, reload_time, ar, ev, es, block, spirit).
+        # Показываются только те, что у предмета есть.
+        "default_equipment_filters": ["pdps"],
         "include_item_level": False,
         "include_quality": False,
         "include_corrupted": True,

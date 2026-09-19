@@ -46,6 +46,98 @@ class ModFilter:
         return out
 
 
+# Параметры экипировки в терминах trade2 API.
+# Порядок задаёт порядок строк в оверлее.
+EQUIPMENT_FIELDS: list[tuple[str, str, int]] = [
+    # ключ API, подпись, знаков после запятой
+    ("dps", "ДПС", 1),
+    ("pdps", "Физ. ДПС", 1),
+    ("edps", "Эл. ДПС", 1),
+    ("crit", "Крит, %", 2),
+    ("aps", "Атак/сек", 2),
+    ("reload_time", "Перезарядка", 2),
+    ("ar", "Броня", 0),
+    ("ev", "Уклонение", 0),
+    ("es", "Энергощит", 0),
+    ("block", "Блок, %", 0),
+    ("spirit", "Дух", 0),
+]
+
+# Для перезарядки арбалета меньше — лучше, поэтому подставляем верхнюю границу.
+LOWER_IS_BETTER = {"reload_time"}
+
+
+@dataclass
+class EquipFilter:
+    """Строка фильтра по характеристике вещи (броня, ДПС и т. д.)."""
+
+    key: str
+    label: str
+    value: float | None = None
+    decimals: int = 0
+    enabled: bool = False
+    min_value: float | None = None
+    max_value: float | None = None
+
+    def bounds(self) -> dict[str, float | int]:
+        out: dict[str, float | int] = {}
+        if self.min_value is not None:
+            out["min"] = _round(self.min_value)
+        if self.max_value is not None:
+            out["max"] = _round(self.max_value)
+        return out
+
+
+def item_equipment_values(item: ParsedItem) -> dict[str, float]:
+    """Характеристики предмета, разложенные по ключам trade2 API."""
+    eq = item.equip
+    raw = {
+        "dps": eq.dps,
+        "pdps": eq.pdps,
+        "edps": eq.edps,
+        "crit": eq.crit,
+        "aps": eq.aps,
+        "reload_time": eq.reload_time,
+        "ar": eq.armour,
+        "ev": eq.evasion,
+        "es": eq.energy_shield,
+        "block": eq.block,
+        "spirit": eq.spirit,
+    }
+    return {k: v for k, v in raw.items() if v}
+
+
+def build_equipment_filters(
+    item: ParsedItem, default_enabled: list[str] | None = None
+) -> list[EquipFilter]:
+    """Строки для блока «Параметры вещи» в оверлее.
+
+    Показываем только то, что у предмета реально есть. Нижняя граница
+    подставляется равной текущему значению — обычный сценарий «найди
+    лук не хуже моего».
+    """
+    values = item_equipment_values(item)
+    enabled_keys = {k.lower() for k in (default_enabled or [])}
+    out: list[EquipFilter] = []
+    for key, label, decimals in EQUIPMENT_FIELDS:
+        value = values.get(key)
+        if value is None:
+            continue
+        mf = EquipFilter(
+            key=key,
+            label=label,
+            value=value,
+            decimals=decimals,
+            enabled=key in enabled_keys,
+        )
+        if key in LOWER_IS_BETTER:
+            mf.max_value = _round(value)
+        else:
+            mf.min_value = _round(value)
+        out.append(mf)
+    return out
+
+
 @dataclass
 class QueryOptions:
     status: str = "online"
@@ -60,6 +152,7 @@ class QueryOptions:
     gem_level_min: int | None = None
     identified: bool | None = None
     price_max_chaos: float | None = None
+    equipment: list[EquipFilter] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -181,6 +274,12 @@ def build_query(
     equipment_filters: dict[str, Any] = {}
     if options.sockets_min is not None:
         equipment_filters["rune_sockets"] = {"min": options.sockets_min}
+    for equip in options.equipment:
+        if not equip.enabled:
+            continue
+        bounds = equip.bounds()
+        if bounds:
+            equipment_filters[equip.key] = bounds
     if equipment_filters:
         filters["equipment_filters"] = {"filters": equipment_filters}
 
@@ -230,5 +329,9 @@ def default_options_for(item: ParsedItem, cfg_search: dict) -> QueryOptions:
         opts.gem_level_min = item.gem_level
     if not item.identified:
         opts.identified = False
+
+    opts.equipment = build_equipment_filters(
+        item, cfg_search.get("default_equipment_filters", [])
+    )
 
     return opts

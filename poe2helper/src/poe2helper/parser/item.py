@@ -40,6 +40,7 @@ KNOWN_PROPERTY_KEYS = {
     "evasion rating",
     "energy shield",
     "block chance",
+    "block",
     "spirit",
     "physical damage",
     "elemental damage",
@@ -160,6 +161,60 @@ class ItemMod:
 
 
 @dataclass
+class EquipStats:
+    """Числовые характеристики вещи: защита и урон.
+
+    Из них считается ДПС — торговая площадка фильтрует именно по нему,
+    а не по «уронов столько-то за удар».
+    """
+
+    armour: float | None = None
+    evasion: float | None = None
+    energy_shield: float | None = None
+    block: float | None = None
+    spirit: float | None = None
+    phys_avg: float | None = None
+    ele_avg: float | None = None
+    chaos_avg: float | None = None
+    aps: float | None = None
+    crit: float | None = None
+    reload_time: float | None = None
+
+    def _dps(self, damage: float | None) -> float | None:
+        if not damage or not self.aps:
+            return None
+        return round(damage * self.aps, 1)
+
+    @property
+    def pdps(self) -> float | None:
+        return self._dps(self.phys_avg)
+
+    @property
+    def edps(self) -> float | None:
+        return self._dps(self.ele_avg)
+
+    @property
+    def cdps(self) -> float | None:
+        return self._dps(self.chaos_avg)
+
+    @property
+    def dps(self) -> float | None:
+        total = (self.phys_avg or 0) + (self.ele_avg or 0) + (self.chaos_avg or 0)
+        return self._dps(total)
+
+    @property
+    def has_defence(self) -> bool:
+        return any(
+            v is not None
+            for v in (self.armour, self.evasion, self.energy_shield, self.block, self.spirit)
+        )
+
+    @property
+    def has_damage(self) -> bool:
+        return self.dps is not None
+
+
+@dataclass
 class ParsedItem:
     raw: str = ""
     item_class: str = ""
@@ -180,6 +235,7 @@ class ParsedItem:
     unmodifiable: bool = False
     mods: list[ItemMod] = field(default_factory=list)
     properties: dict[str, str] = field(default_factory=dict)
+    equip: EquipStats = field(default_factory=EquipStats)
     note: str = ""
 
     @property
@@ -205,6 +261,14 @@ class ParsedItem:
     @property
     def category(self) -> str | None:
         return CATEGORY_BY_CLASS.get(self.item_class.strip().lower())
+
+    @property
+    def is_weapon(self) -> bool:
+        return (self.category or "").startswith("weapon.")
+
+    @property
+    def is_armour(self) -> bool:
+        return (self.category or "").startswith("armour.")
 
     @property
     def display_name(self) -> str:
@@ -241,6 +305,34 @@ def _to_int(value: str) -> int | None:
         return int(float(m.group()))
     except ValueError:
         return None
+
+
+def _to_float(value: str) -> float | None:
+    m = re.search(r"\d+(?:\.\d+)?", value)
+    if not m:
+        return None
+    try:
+        return float(m.group())
+    except ValueError:
+        return None
+
+
+RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)")
+
+
+def _avg_damage(value: str) -> float | None:
+    """``"12-24 (augmented), 5-9"`` -> 18 + 7 = 25.
+
+    Элементальный урон приходит несколькими диапазонами через запятую —
+    суммируем средние по каждому, как это делает сама торговая площадка.
+    """
+    ranges = RANGE_RE.findall(value)
+    if not ranges:
+        return None
+    total = 0.0
+    for low, high in ranges:
+        total += (float(low) + float(high)) / 2
+    return round(total, 2)
 
 
 def looks_like_poe_item(text: str) -> bool:
@@ -358,6 +450,42 @@ def _apply_property(item: ParsedItem, key: str, value: str) -> None:
     low = key.lower()
     clean = AUGMENTED_RE.sub("", value).strip()
     item.properties[low] = clean
+
+    # Урон разбираем из исходной строки: «(augmented)» может стоять после
+    # каждого диапазона, а не только в конце.
+    if low == "physical damage":
+        item.equip.phys_avg = _avg_damage(value)
+        return
+    if low == "elemental damage":
+        item.equip.ele_avg = _avg_damage(value)
+        return
+    if low == "chaos damage":
+        item.equip.chaos_avg = _avg_damage(value)
+        return
+    if low == "attacks per second":
+        item.equip.aps = _to_float(clean)
+        return
+    if low == "critical hit chance":
+        item.equip.crit = _to_float(clean)
+        return
+    if low == "reload time":
+        item.equip.reload_time = _to_float(clean)
+        return
+    if low == "armour":
+        item.equip.armour = _to_float(clean)
+        return
+    if low == "evasion rating":
+        item.equip.evasion = _to_float(clean)
+        return
+    if low == "energy shield":
+        item.equip.energy_shield = _to_float(clean)
+        return
+    if low in ("block chance", "block"):
+        item.equip.block = _to_float(clean)
+        return
+    if low == "spirit":
+        item.equip.spirit = _to_float(clean)
+        return
 
     if low == "quality":
         item.quality = _to_int(clean)

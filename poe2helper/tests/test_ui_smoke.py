@@ -103,6 +103,39 @@ class TestUiSmoke(unittest.TestCase):
         overlay.hide()
         overlay.deleteLater()
 
+    def test_overlay_shows_equipment_rows(self):
+        from fixtures import RARE_BOW, RARE_GLOVES
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        ctx.cfg.set("search.default_equipment_filters", ["pdps"])
+        overlay = PriceCheckOverlay(ctx)
+        overlay.show_item(parse_item(RARE_BOW))
+
+        self.assertTrue(overlay.equip_box.isVisibleTo(overlay))
+        keys = [r.equip.key for r in overlay.equip_rows]
+        self.assertEqual(keys, ["dps", "pdps", "edps", "crit", "aps"])
+
+        pdps_row = next(r for r in overlay.equip_rows if r.equip.key == "pdps")
+        self.assertTrue(pdps_row.check.isChecked())
+        self.assertEqual(pdps_row.min_spin.bound(), 78.8)
+
+        # правка границы доезжает до модели
+        pdps_row.min_spin.set_bound(90)
+        pdps_row.min_spin.valueChanged.emit(90)
+        self.assertEqual(pdps_row.equip.min_value, 90)
+
+        # «Снять все» гасит и параметры вещи
+        overlay._set_all(False)
+        self.assertFalse(any(e.enabled for e in overlay.options.equipment))
+
+        # у перчаток оружейных строк быть не должно
+        overlay.show_item(parse_item(RARE_GLOVES))
+        self.assertEqual([r.equip.key for r in overlay.equip_rows], ["ar", "ev"])
+
+        overlay.hide()
+        overlay.deleteLater()
+
     def test_add_mod_dialog_search(self):
         from poe2helper.ui.addmod import AddModDialog
 

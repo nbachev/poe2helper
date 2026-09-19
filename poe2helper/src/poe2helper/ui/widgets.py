@@ -145,6 +145,63 @@ class ModRow(QWidget):
         self.check.setChecked(enabled)
 
 
+class EquipRow(QWidget):
+    """Строка параметра вещи: броня, ДПС, крит и т. п."""
+
+    changed = Signal()
+
+    def __init__(self, equip, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.equip = equip
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 1, 2, 1)
+        layout.setSpacing(4)
+
+        self.check = QCheckBox(equip.label)
+        self.check.setChecked(equip.enabled)
+        self.check.setMinimumWidth(92)
+        if equip.value is not None:
+            self.check.setToolTip(f"На предмете: {_fmt_value(equip.value, equip.decimals)}")
+        self.check.toggled.connect(self._on_toggle)
+        layout.addWidget(self.check)
+
+        self.min_spin = BoundSpin("мин")
+        self.min_spin.setDecimals(equip.decimals)
+        self.min_spin.set_bound(equip.min_value)
+        self.min_spin.valueChanged.connect(self._on_value)
+        layout.addWidget(self.min_spin)
+
+        self.max_spin = BoundSpin("макс")
+        self.max_spin.setDecimals(equip.decimals)
+        self.max_spin.set_bound(equip.max_value)
+        self.max_spin.valueChanged.connect(self._on_value)
+        layout.addWidget(self.max_spin)
+
+        self._sync_style()
+
+    def _on_toggle(self, checked: bool) -> None:
+        self.equip.enabled = checked
+        self._sync_style()
+        self.changed.emit()
+
+    def _on_value(self) -> None:
+        self.equip.min_value = self.min_spin.bound()
+        self.equip.max_value = self.max_spin.bound()
+        self.changed.emit()
+
+    def _sync_style(self) -> None:
+        color = COLORS["text"] if self.equip.enabled else COLORS["text_dim"]
+        weight = "600" if self.equip.enabled else "400"
+        self.check.setStyleSheet(f"color: {color}; font-weight: {weight};")
+
+
+def _fmt_value(value: float, decimals: int) -> str:
+    if decimals <= 0:
+        return str(int(round(value)))
+    return f"{value:.{decimals}f}"
+
+
 def _kind_short(kind: str) -> str:
     return {
         "explicit": "exp",

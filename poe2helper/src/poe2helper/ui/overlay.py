@@ -32,7 +32,7 @@ from ..trade.client import SearchResult
 from ..trade.query import ModFilter, QueryOptions, build_mod_filters, build_query, default_options_for
 from .addmod import AddModDialog
 from .style import COLORS, QSS, rarity_color
-from .widgets import ModRow
+from .widgets import EquipRow, ModRow
 from .workers import run_async
 
 log = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ class PriceCheckOverlay(QWidget):
         self.item: ParsedItem | None = None
         self.mod_filters: list[ModFilter] = []
         self.rows: list[ModRow] = []
+        self.equip_rows: list[EquipRow] = []
         self.options = QueryOptions()
         self.last_result: SearchResult | None = None
         self._drag_origin: QPoint | None = None
@@ -115,6 +116,21 @@ class PriceCheckOverlay(QWidget):
         self.mods_area.setWidget(self.mods_host)
         self.mods_area.setMinimumHeight(90)
         root.addWidget(self.mods_area, 3)
+
+        # ---- параметры вещи (броня, ДПС, крит…)
+        self.equip_box = QWidget()
+        equip_outer = QVBoxLayout(self.equip_box)
+        equip_outer.setContentsMargins(0, 2, 0, 2)
+        equip_outer.setSpacing(2)
+        self.lbl_equip = QLabel("Параметры вещи")
+        self.lbl_equip.setObjectName("Section")
+        equip_outer.addWidget(self.lbl_equip)
+        self.equip_grid = QGridLayout()
+        self.equip_grid.setHorizontalSpacing(10)
+        self.equip_grid.setVerticalSpacing(1)
+        equip_outer.addLayout(self.equip_grid)
+        self.equip_box.setVisible(False)
+        root.addWidget(self.equip_box)
 
         # ---- фильтры предмета
         filt = QGridLayout()
@@ -251,6 +267,7 @@ class PriceCheckOverlay(QWidget):
             min_only=bool(cfg_search.get("use_min_only", True)),
         )
         self._rebuild_rows()
+        self._rebuild_equip_rows()
         self._fill_header()
         self._options_to_ui()
         self.table.setRowCount(0)
@@ -295,6 +312,35 @@ class PriceCheckOverlay(QWidget):
             self.rows.append(row)
         self._adjust_height()
 
+    def _rebuild_equip_rows(self) -> None:
+        for row in self.equip_rows:
+            row.setParent(None)
+            row.deleteLater()
+        self.equip_rows.clear()
+
+        while self.equip_grid.count():
+            child = self.equip_grid.takeAt(0)
+            widget = child.widget()
+            if widget is not None:
+                widget.setParent(None)
+
+        filters = self.options.equipment
+        self.equip_box.setVisible(bool(filters))
+        if not filters:
+            return
+
+        # Две колонки: строк получается вдвое меньше, оверлей не разрастается.
+        for index, equip in enumerate(filters):
+            row = EquipRow(equip)
+            row.changed.connect(self._on_equip_changed)
+            self.equip_grid.addWidget(row, index // 2, index % 2)
+            self.equip_rows.append(row)
+
+    def _on_equip_changed(self) -> None:
+        # Значения уже записаны в EquipFilter самой строкой — тут только
+        # точка расширения, если понадобится реагировать на правки.
+        pass
+
     def _remove_row(self, row: ModRow) -> None:
         if row.mod in self.mod_filters:
             self.mod_filters.remove(row.mod)
@@ -307,6 +353,9 @@ class PriceCheckOverlay(QWidget):
     def _set_all(self, enabled: bool) -> None:
         for row in self.rows:
             row.set_enabled_state(enabled)
+        if not enabled:
+            for equip_row in self.equip_rows:
+                equip_row.check.setChecked(False)
 
     def _reset(self) -> None:
         if self.item is not None:
@@ -408,10 +457,14 @@ class PriceCheckOverlay(QWidget):
         self._sync_options()
         query = build_query(self.item, self.mod_filters, self.options)
         enabled = sum(1 for m in self.mod_filters if m.enabled and m.stat_id)
+        equip_on = [e.label for e in self.options.equipment if e.enabled]
         self._busy = True
         self.btn_search.setEnabled(False)
         self.btn_search.setText("Ищу…")
-        self.lbl_status.setText(f"Запрос к торговой площадке ({enabled} модов)…")
+        details = f"{enabled} модов"
+        if equip_on:
+            details += ", " + ", ".join(equip_on)
+        self.lbl_status.setText(f"Запрос к торговой площадке ({details})…")
 
         limit = int(self.ctx.cfg.get("search.default_listings", 20))
         run_async(

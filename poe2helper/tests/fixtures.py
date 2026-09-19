@@ -71,6 +71,65 @@ Grants Skill: Level 8 Chaos Bolt
 +35 to maximum Mana
 """
 
+RARE_BOW = """Item Class: Bows
+Rarity: Rare
+Woe Fletch
+Advanced Dualstring Bow
+--------
+Quality: +20% (augmented)
+Physical Damage: 44-82 (augmented)
+Elemental Damage: 12-24 (augmented), 5-9 (augmented)
+Critical Hit Chance: 6.50%
+Attacks per Second: 1.25
+--------
+Requirements:
+Level: 62
+Dex: 152
+--------
+Sockets: S S
+--------
+Item Level: 78
+--------
+72% increased Physical Damage
+Adds 12 to 24 Fire Damage
+Adds 5 to 9 Lightning Damage
++25 to maximum Life
+"""
+
+RARE_BODY_ARMOUR = """Item Class: Body Armours
+Rarity: Rare
+Doom Guard
+Advanced Vaal Cuirass
+--------
+Quality: +20% (augmented)
+Armour: 512 (augmented)
+Evasion Rating: 120
+Energy Shield: 44
+--------
+Requirements:
+Level: 65
+Str: 133
+--------
+Item Level: 81
+--------
++82 to maximum Life
++15% to Cold Resistance
+"""
+
+SHIELD_WITH_BLOCK = """Item Class: Shields
+Rarity: Rare
+Bramble Ward
+Advanced Wooden Buckler
+--------
+Block chance: 30%
+Evasion Rating: 210
+Spirit: 25
+--------
+Item Level: 74
+--------
++40 to maximum Life
+"""
+
 NOT_AN_ITEM = "просто текст из буфера обмена, никакого предмета тут нет"
 
 
