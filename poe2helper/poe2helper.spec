@@ -36,7 +36,6 @@ EXCLUDES = [
     "PySide6.QtDesigner",
     "PySide6.QtHelp",
     "PySide6.QtUiTools",
-    "shiboken6.Shiboken",
     "tkinter",
     "unittest",
     "pydoc_data",
