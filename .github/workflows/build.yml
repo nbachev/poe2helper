@@ -1,0 +1,64 @@
+name: build-windows
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Забрать исходники
+        uses: actions/checkout@v4
+
+      - name: Поставить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Установить зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: Нарисовать иконку
+        run: python tools/make_icon.py
+
+      - name: Тесты (логика + сборка окон вхолостую)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover -s tests -v
+
+      - name: Собрать exe
+        run: python -m PyInstaller poe2helper.spec --noconfirm --clean
+
+      - name: Положить README рядом с exe
+        shell: pwsh
+        run: |
+          Copy-Item README.md dist/PoE2Helper/README.md
+          "PoE2 Helper - запусти PoE2Helper.exe" | Out-File -Encoding utf8 dist/PoE2Helper/ЗАПУСК.txt
+
+      - name: Выложить артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: PoE2Helper-windows
+          path: dist
+          retention-days: 30
+
+      - name: Упаковать в ZIP для релиза
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: Compress-Archive -Path dist/PoE2Helper -DestinationPath PoE2Helper-windows.zip
+
+      - name: Создать релиз (только для тега v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PoE2Helper-windows.zip
