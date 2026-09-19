@@ -61,3 +61,28 @@ jobs:
       - name: Собрать exe
         working-directory: ${{ steps.locate.outputs.dir }}
         run: python -m PyInstaller poe2helper.spec --noconfirm --clean
+      - name: Положить README рядом с exe
+        working-directory: ${{ steps.locate.outputs.dir }}
+        shell: pwsh
+        run: |
+          if (Test-Path README.md) { Copy-Item README.md dist/PoE2Helper/README.md }
+          "PoE2 Helper - zapusti PoE2Helper.exe" | Out-File -Encoding utf8 dist/PoE2Helper/START-HERE.txt
+
+      - name: Выложить артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: PoE2Helper-windows
+          path: ${{ steps.locate.outputs.dir }}/dist
+          retention-days: 30
+
+      - name: Упаковать в ZIP для релиза
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: ${{ steps.locate.outputs.dir }}
+        shell: pwsh
+        run: Compress-Archive -Path dist/PoE2Helper -DestinationPath $env:GITHUB_WORKSPACE/PoE2Helper-windows.zip
+
+      - name: Создать релиз (только для тега v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PoE2Helper-windows.zip
