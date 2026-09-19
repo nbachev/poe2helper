@@ -54,7 +54,7 @@ a = Analysis(
     ["src/poe2helper/__main__.py"],
     pathex=["src"],
     binaries=[],
-    datas=[(ICON, "resources")],
+    datas=[(ICON, "resources")] if os.path.exists(ICON) else [],
     hiddenimports=["poe2helper"],
     hookspath=[],
     hooksconfig={},
