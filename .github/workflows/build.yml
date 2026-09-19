@@ -50,7 +50,13 @@ jobs:
 
       - name: Нарисовать иконку
         working-directory: ${{ steps.locate.outputs.dir }}
-        run: python tools/make_icon.py
+        shell: pwsh
+        run: |
+          if (Test-Path tools/make_icon.py) {
+            python tools/make_icon.py
+          } else {
+            Write-Host "tools/make_icon.py не найден — соберём со стандартной иконкой"
+          }
 
       - name: Тесты (логика + сборка окон вхолостую)
         working-directory: ${{ steps.locate.outputs.dir }}
