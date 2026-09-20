@@ -223,6 +223,45 @@ Grants Skill: Raise Shield
 +21(21-24) to Strength
 """
 
+# Пара реальных луков: белая основа и она же с модами. Формат Path of
+# Building — там нет строки «Item Class», крит называется «Critical Strike
+# Chance», а добавленный стихийный урон отдельным свойством не выводится.
+BOW_WHITE = """Rarity: Normal
+Crafted Item
+Fanatic Bow
+--------
+Physical Damage: 47-79
+Critical Strike Chance: 5.00%
+Attacks Per Second: 1.20
+--------
+Requirements:
+Level: 79
+--------
+Item Level: 100
+--------
+"""
+
+BOW_CRAFTED = """Rarity: Rare
+Crafted Item
+Fanatic Bow
+--------
+Quality: +20% (augmented)
+Physical Damage: 262-452
+Critical Strike Chance: 5.00%
+Attacks Per Second: 1.40
+--------
+Requirements:
+Level: 79
+--------
+Item Level: 100
+--------
+179% increased Physical Damage
+Adds 73 to 110 Cold Damage
+Adds 31 to 56 Physical Damage
+17% increased Attack Speed
+--------
+"""
+
 NOT_AN_ITEM = "просто текст из буфера обмена, никакого предмета тут нет"
 
 

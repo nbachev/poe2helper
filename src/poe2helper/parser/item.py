@@ -27,6 +27,9 @@ NUMBER_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
 # иначе текст мода не совпадёт ни с чем в пуле торговой площадки.
 ANNOTATION_RE = re.compile(r"^\{(.+)\}$")
 ROLL_RANGE_RE = re.compile(r"(?<=\d)\(\s*\d+(?:\.\d+)?(?:\s*-\s*\d+(?:\.\d+)?)?\s*\)")
+ROLL_RANGE_CAPTURE_RE = re.compile(
+    r"(?<=\d)\(\s*(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?\s*\)"
+)
 ANNOTATION_KIND_RE = re.compile(
     r"\b(prefix|suffix|implicit|explicit|rune|enchant|crafted|desecrated|fractured|scourge|veiled|sanctum)\b",
     re.I,
@@ -39,7 +42,16 @@ ANNOTATION_TIER_RE = re.compile(r"\(\s*Tier:\s*(\d+)\s*\)", re.I)
 HEADER_NOISE_PREFIXES = (
     "you cannot use this item",
     "this item is not usable",
+    "crafted item",  # так помечает предметы Path of Building
 )
+
+# «Adds 73 to 110 Cold Damage» — добавленный стихийный урон.
+# Нужен, когда свойства «Elemental Damage:» в тексте нет (например,
+# предмет скопирован из Path of Building), а урон посчитать надо.
+ADDS_ELEMENTAL_RE = re.compile(
+    r"^adds\s+[\d.]+\s+to\s+[\d.]+\s+(fire|cold|lightning)\s+damage", re.I
+)
+ADDS_CHAOS_RE = re.compile(r"^adds\s+[\d.]+\s+to\s+[\d.]+\s+chaos\s+damage", re.I)
 
 ANNOTATION_KIND_MAP = {
     "prefix": "explicit",
@@ -57,9 +69,30 @@ ANNOTATION_KIND_MAP = {
 }
 
 
+def _fmt_num(value: float) -> str:
+    if abs(value - round(value)) < 1e-9:
+        return str(int(round(value)))
+    return f"{value:g}"
+
+
 def strip_roll_ranges(text: str) -> str:
     """``+97(85-99) to maximum Life`` -> ``+97 to maximum Life``."""
     return ROLL_RANGE_RE.sub("", text)
+
+
+def extract_roll_ranges(text: str) -> list[tuple[float, float]]:
+    """``+97(85-99) to maximum Life`` -> ``[(85.0, 99.0)]``.
+
+    Это границы ролла для тира, в котором выпал мод, — игра сообщает их
+    только при включённых расширенных описаниях. Для мода с одним
+    возможным значением обе границы совпадают.
+    """
+    out: list[tuple[float, float]] = []
+    for low, high in ROLL_RANGE_CAPTURE_RE.findall(text):
+        lo = float(low)
+        hi = float(high) if high else lo
+        out.append((lo, hi))
+    return out
 MOD_TAG_RE = re.compile(r"\s*\((implicit|explicit|crafted|enchant|rune|fractured|desecrated|scourge|veiled|sanctum)\)\s*$", re.I)
 AUGMENTED_RE = re.compile(r"\s*\((?:augmented|unmet)\)\s*$", re.I)
 
@@ -89,6 +122,7 @@ KNOWN_PROPERTY_KEYS = {
     "elemental damage",
     "chaos damage",
     "critical hit chance",
+    "critical strike chance",  # так называется в Path of Building
     "attacks per second",
     "reload time",
     "requirements",
@@ -194,6 +228,28 @@ class ItemMod:
     # «40% increased Armour» + «+123 to Stun Threshold»). Строки одного
     # аффикса делят group_id, и оверлей показывает их одной строкой.
     group_id: int = 0
+    # Границы ролла для выпавшего тира, если игра их сообщила
+    ranges: list[tuple[float, float]] = field(default_factory=list)
+
+    @property
+    def roll_percent(self) -> float | None:
+        """Насколько удачен ролл внутри своего тира, 0..100."""
+        if not self.ranges or not self.values:
+            return None
+        low, high = self.ranges[0]
+        if high <= low:
+            return 100.0
+        value = self.values[0]
+        return max(0.0, min(100.0, (value - low) / (high - low) * 100))
+
+    @property
+    def range_text(self) -> str:
+        if not self.ranges:
+            return ""
+        low, high = self.ranges[0]
+        if high <= low:
+            return _fmt_num(low)
+        return f"{_fmt_num(low)}–{_fmt_num(high)}"
 
     @property
     def value(self) -> float | None:
@@ -597,7 +653,7 @@ def _apply_property(item: ParsedItem, key: str, value: str) -> None:
     if low == "attacks per second":
         item.equip.aps = _to_float(clean)
         return
-    if low == "critical hit chance":
+    if low in ("critical hit chance", "critical strike chance"):
         item.equip.crit = _to_float(clean)
         return
     if low == "reload time":
@@ -651,7 +707,9 @@ def _make_mod(line: str, annotation: dict | None = None) -> ItemMod | None:
         kind = m.group(1).lower()
         line = MOD_TAG_RE.sub("", line).strip()
 
-    # Разброс ролла из расширенного описания в текст мода не входит
+    # Границы ролла забираем ДО того, как вырезать их из текста,
+    # иначе извлекать будет уже нечего.
+    ranges = extract_roll_ranges(line)
     line = strip_roll_ranges(line).strip()
     if not line:
         return None
@@ -679,13 +737,37 @@ def _make_mod(line: str, annotation: dict | None = None) -> ItemMod | None:
         raw=raw,
         affix=affix,
         tier=annotation.get("tier"),
+        ranges=ranges,
     )
+
+
+def _derive_added_damage(item: ParsedItem) -> None:
+    """Восстанавливает стихийный и хаос-урон из модов, если свойства нет.
+
+    Игра показывает отдельной строкой «Elemental Damage: 73-110», но в
+    экспорте Path of Building такой строки может не быть — там добавленный
+    урон виден только модом. Считаем его сами, и только когда свойство
+    отсутствует: иначе вышло бы двойное начисление.
+    """
+    for pattern, attribute in ((ADDS_ELEMENTAL_RE, "ele_avg"), (ADDS_CHAOS_RE, "chaos_avg")):
+        if getattr(item.equip, attribute) is not None:
+            continue
+        total = 0.0
+        for mod in item.mods:
+            if not pattern.match(mod.text):
+                continue
+            if len(mod.values) >= 2:
+                total += (mod.values[0] + mod.values[1]) / 2
+        if total:
+            setattr(item.equip, attribute, round(total, 2))
 
 
 def _post_process(item: ParsedItem) -> None:
     # Неопознанный предмет: у него нет аффиксов в буфере
     if not item.identified:
         item.mods = [m for m in item.mods if m.kind != "explicit"]
+
+    _derive_added_damage(item)
 
     # Раньше здесь отбрасывался «художественный текст» уникальных предметов
     # по эвристике «нет цифр и нет ключевых слов». Она била и по настоящим
