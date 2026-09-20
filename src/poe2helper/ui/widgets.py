@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRegularExpression, Qt, Signal
+from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QCheckBox,
-    QDoubleSpinBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -17,40 +18,81 @@ from PySide6.QtWidgets import (
 from ..trade.query import LOWER_IS_BETTER, ModFilter
 from .style import COLORS
 
-NO_VALUE = -99999.0
+# Допускаем пустую строку, минус, цифры и один разделитель дробной части:
+# на русской раскладке Windows это запятая, в наших расчётах — точка.
+NUMBER_INPUT_RE = QRegularExpression(r"^-?\d{0,7}([.,]\d{0,4})?$")
 
 
-class BoundSpin(QDoubleSpinBox):
-    """Числовое поле, где «пусто» = граница не задана."""
+class BoundSpin(QLineEdit):
+    """Числовое поле, где «пусто» = граница не задана.
+
+    Раньше это был QDoubleSpinBox, и подпись «мин»/«макс» показывалась
+    через specialValueText — то есть была настоящим значением поля при
+    минимуме, и её приходилось стирать перед вводом. Здесь это обычный
+    placeholder: он виден, только пока поле пустое, и значением не является.
+
+    Значение применяется сразу при вводе, а также по потере фокуса и по
+    Enter — ждать Enter не нужно.
+    """
+
+    valueChanged = Signal(float)  # имя сохранено ради совместимости
 
     def __init__(self, placeholder: str = "—", parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setRange(NO_VALUE, 99999.0)
-        self.setDecimals(2)
-        self.setSingleStep(1.0)
-        self.setValue(NO_VALUE)
-        self.setSpecialValueText(placeholder)
-        self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self._decimals = 2
+        self.setPlaceholderText(placeholder)
+        self.setValidator(QRegularExpressionValidator(NUMBER_INPUT_RE, self))
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setFixedWidth(58)
-        self.setKeyboardTracking(False)
+        self.setClearButtonEnabled(False)
 
-    def textFromValue(self, value: float) -> str:  # noqa: N802 (Qt API)
-        if value == NO_VALUE:
-            return self.specialValueText()
+        self.textEdited.connect(self._on_text_edited)
+        self.editingFinished.connect(self._on_editing_finished)
+
+    # ------------------------------------------------------------- значение
+    def setDecimals(self, decimals: int) -> None:  # noqa: N802 (как было у спинбокса)
+        self._decimals = max(0, int(decimals))
+
+    def bound(self) -> float | None:
+        text = self.text().strip().replace(",", ".")
+        if not text or text in ("-", ".", "-."):
+            return None
+        try:
+            value = float(text)
+        except ValueError:
+            return None
+        return round(value, self._decimals) if self._decimals else float(round(value))
+
+    def set_bound(self, value: float | None) -> None:
+        """Программная установка значения: сигналы при этом не идут."""
+        self.setText("" if value is None else self._format(value))
+
+    def clear_bound(self) -> None:
+        self.set_bound(None)
+
+    def _format(self, value: float) -> str:
+        value = round(float(value), self._decimals)
         if abs(value - round(value)) < 1e-9:
             return str(int(round(value)))
         return f"{value:g}"
 
-    def bound(self) -> float | None:
-        value = self.value()
-        return None if value == NO_VALUE else value
+    # -------------------------------------------------------------- события
+    def _emit(self) -> None:
+        value = self.bound()
+        self.valueChanged.emit(0.0 if value is None else value)
 
-    def set_bound(self, value: float | None) -> None:
-        self.setValue(NO_VALUE if value is None else float(value))
+    def _on_text_edited(self, _text: str) -> None:
+        # Живой отклик: пересчёт идёт по мере ввода, без Enter
+        self._emit()
 
-    def clear_bound(self) -> None:
-        self.setValue(NO_VALUE)
+    def _on_editing_finished(self) -> None:
+        # Клик вне поля или Enter: приводим текст к единому виду
+        value = self.bound()
+        current = self.text().strip()
+        formatted = "" if value is None else self._format(value)
+        if current != formatted:
+            self.setText(formatted)
+        self._emit()
 
 
 class ModRow(QWidget):
@@ -134,10 +176,12 @@ class ModRow(QWidget):
         line.addWidget(pick)
 
         min_spin = BoundSpin("мин")
+        min_spin.setToolTip("Нижняя граница. Пусто — не ограничивать.")
         min_spin.valueChanged.connect(lambda _=0.0, m=mod: self._on_value(m))
         line.addWidget(min_spin)
 
         max_spin = BoundSpin("макс")
+        max_spin.setToolTip("Верхняя граница. Пусто — не ограничивать.")
         max_spin.valueChanged.connect(lambda _=0.0, m=mod: self._on_value(m))
         line.addWidget(max_spin)
 
@@ -259,12 +303,14 @@ class EquipRow(QWidget):
         layout.addWidget(self.check)
 
         self.min_spin = BoundSpin("мин")
+        self.min_spin.setToolTip("Нижняя граница. Пусто — не ограничивать.")
         self.min_spin.setDecimals(equip.decimals)
         self.min_spin.set_bound(equip.min_value)
         self.min_spin.valueChanged.connect(self._on_value)
         layout.addWidget(self.min_spin)
 
         self.max_spin = BoundSpin("макс")
+        self.max_spin.setToolTip("Верхняя граница. Пусто — не ограничивать.")
         self.max_spin.setDecimals(equip.decimals)
         self.max_spin.set_bound(equip.max_value)
         self.max_spin.valueChanged.connect(self._on_value)

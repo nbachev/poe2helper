@@ -156,6 +156,89 @@ class TestUiSmoke(unittest.TestCase):
         overlay.hide()
         overlay.deleteLater()
 
+    def test_bound_field_placeholder_is_not_a_value(self):
+        """«мин»/«макс» — подсказка, а не содержимое поля."""
+        from poe2helper.ui.widgets import BoundSpin
+
+        spin = BoundSpin("мин")
+        self.assertEqual(spin.text(), "", "поле должно быть пустым")
+        self.assertEqual(spin.placeholderText(), "мин")
+        self.assertIsNone(spin.bound())
+
+        spin.set_bound(78.8)
+        self.assertEqual(spin.text(), "78.8")
+        self.assertEqual(spin.bound(), 78.8)
+
+        spin.clear_bound()
+        self.assertEqual(spin.text(), "")
+        self.assertIsNone(spin.bound())
+        spin.deleteLater()
+
+    def test_bound_field_applies_without_enter(self):
+        """Значение доходит до модели по мере ввода, без Enter."""
+        from poe2helper.ui.widgets import BoundSpin
+
+        spin = BoundSpin("мин")
+        seen: list[float] = []
+        spin.valueChanged.connect(seen.append)
+
+        # программная установка сигналов не поднимает
+        spin.set_bound(10)
+        self.assertEqual(seen, [])
+
+        # ввод пользователя — сигнал сразу
+        spin.setText("120")
+        spin.textEdited.emit("120")
+        self.assertTrue(seen)
+        self.assertEqual(spin.bound(), 120)
+
+        # потеря фокуса тоже применяет и нормализует текст
+        seen.clear()
+        spin.setText("15.50")
+        spin.editingFinished.emit()
+        self.assertEqual(spin.text(), "15.5")
+        self.assertEqual(spin.bound(), 15.5)
+        self.assertTrue(seen)
+        spin.deleteLater()
+
+    def test_bound_field_accepts_comma_and_rounds(self):
+        from poe2helper.ui.widgets import BoundSpin
+
+        spin = BoundSpin("мин")
+        spin.setText("78,5")  # запятая на русской раскладке
+        self.assertEqual(spin.bound(), 78.5)
+
+        spin.setDecimals(0)  # броня — целое
+        spin.setText("1500.7")
+        self.assertEqual(spin.bound(), 1501)
+
+        for junk in ("", "-", "."):
+            spin.setText(junk)
+            self.assertIsNone(spin.bound(), f"«{junk}» — это не значение")
+        spin.deleteLater()
+
+    def test_typing_into_mod_row_updates_equipment(self):
+        """Ввод в поле мода пересчитывает параметры вещи без Enter."""
+        from fixtures import SHIELD_ADVANCED
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        overlay.show_item(parse_item(SHIELD_ADVANCED))
+
+        armour_row = next(r for r in overlay.equip_rows if r.equip.key == "ar")
+        before = armour_row.equip.min_value
+
+        flat_row = next(r for r in overlay.rows if r.mod.text == "+216 to Armour")
+        flat_row.min_spin.setText("300")
+        flat_row.min_spin.textEdited.emit("300")
+
+        self.assertEqual(flat_row.mod.min_value, 300)
+        self.assertGreater(armour_row.equip.min_value, before)
+
+        overlay.hide()
+        overlay.deleteLater()
+
     def test_unmatched_row_offers_manual_pick(self):
         from poe2helper.trade.query import ModFilter
         from poe2helper.ui.widgets import ModRow
