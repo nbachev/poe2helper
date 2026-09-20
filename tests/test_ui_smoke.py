@@ -171,12 +171,25 @@ class TestUiSmoke(unittest.TestCase):
         overlay = PriceCheckOverlay(ctx)
         overlay.show_item(parse_item(ADVANCED_BOOTS))
 
-        self.assertEqual(len(overlay.rows), 4)
+        # Ожидания считаем из самой фикстуры: поменяется предмет —
+        # тест подстроится сам, а не протухнет, как было.
+        item = parse_item(ADVANCED_BOOTS)
+        self.assertEqual(len(overlay.rows), len(item.mods))
+
         for row in overlay.rows:
             self.assertTrue(row.check.isEnabled(), f"серый чекбокс: {row.mod.text}")
-        # тир аффикса показывается вместо вида мода
-        tiers = sorted(r.tag.text() for r in overlay.rows)
-        self.assertEqual(tiers, ["T2", "T3", "T4", "T4"])
+
+        # там, где известен тир аффикса, в колонке справа стоит он
+        expected_tiers = sorted(f"T{m.tier}" for m in item.mods if m.tier)
+        shown_tiers = sorted(r.tag.text() for r in overlay.rows if r.tag.text().startswith("T"))
+        self.assertEqual(shown_tiers, expected_tiers)
+
+        # у руны тира нет — показывается вид мода
+        runes = [r for r in overlay.rows if r.mod.kind == "rune"]
+        self.assertEqual(len(runes), sum(1 for m in item.mods if m.kind == "rune"))
+        for row in runes:
+            self.assertEqual(row.tag.text(), "rune")
+
         overlay.hide()
         overlay.deleteLater()
 
