@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: windows-latest
 
+    # Консоль раннера по умолчанию cp1252, а в скриптах и тестах есть
+    # кириллица. Без этого любой print() с русским текстом роняет шаг.
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
@@ -25,6 +27,8 @@ jobs:
         shell: pwsh
         run: Get-ChildItem -Recurse -Depth 2 -Name | Select-Object -First 80
 
+      # Файлы могли попасть в репозиторий внутри подпапки — ищем корень
+      # проекта по poe2helper.spec, а не полагаемся на то, что он в корне.
       - name: Найти корень проекта
         id: locate
         shell: pwsh
@@ -43,6 +47,7 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Ставим напрямую, без requirements-файлов: одной точкой отказа меньше.
       - name: Установить зависимости
         run: |
           python -m pip install --upgrade pip
@@ -67,6 +72,7 @@ jobs:
       - name: Собрать exe
         working-directory: ${{ steps.locate.outputs.dir }}
         run: python -m PyInstaller poe2helper.spec --noconfirm --clean
+
       - name: Положить README рядом с exe
         working-directory: ${{ steps.locate.outputs.dir }}
         shell: pwsh
@@ -74,6 +80,7 @@ jobs:
           if (Test-Path README.md) { Copy-Item README.md dist/PoE2Helper/README.md }
           "PoE2 Helper - zapusti PoE2Helper.exe" | Out-File -Encoding utf8 dist/PoE2Helper/START-HERE.txt
 
+      # В скачанном ZIP сразу лежит папка PoE2Helper, без «зипа в зипе».
       - name: Выложить артефакт
         uses: actions/upload-artifact@v4
         with:
