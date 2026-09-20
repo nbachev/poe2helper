@@ -239,6 +239,49 @@ class TestUiSmoke(unittest.TestCase):
         overlay.hide()
         overlay.deleteLater()
 
+    def test_sale_type_selector(self):
+        """Instant Buyout по умолчанию, выбор запоминается в настройках."""
+        from poe2helper.ui.overlay import STATUS_OPTIONS, PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        overlay.show_item(parse_item(RARE_GLOVES))
+
+        self.assertEqual(overlay.cmb_status.count(), len(STATUS_OPTIONS))
+        self.assertEqual(overlay.cmb_status.currentData(), "securable")
+        self.assertEqual(overlay.options.status, "securable")
+
+        # переключаем на In Person
+        index = overlay.cmb_status.findData("onlineleague")
+        self.assertGreaterEqual(index, 0)
+        overlay.cmb_status.setCurrentIndex(index)
+
+        self.assertEqual(overlay.options.status, "onlineleague")
+        self.assertEqual(ctx.cfg.get("search.status"), "onlineleague")
+
+        # и новый предмет открывается уже с этим выбором
+        overlay.show_item(parse_item(RARE_GLOVES))
+        self.assertEqual(overlay.cmb_status.currentData(), "onlineleague")
+
+        overlay.hide()
+        overlay.deleteLater()
+
+    def test_numeric_filters_have_no_arrows(self):
+        """Тогглы ±1 у полей оверлея убраны."""
+        from PySide6.QtWidgets import QAbstractSpinBox
+
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        for spin in (overlay.spn_ilvl, overlay.spn_quality, overlay.spn_sockets):
+            self.assertEqual(
+                spin.buttonSymbols(),
+                QAbstractSpinBox.ButtonSymbols.NoButtons,
+                "у поля остались стрелки",
+            )
+        overlay.deleteLater()
+
     def test_unmatched_row_offers_manual_pick(self):
         from poe2helper.trade.query import ModFilter
         from poe2helper.ui.widgets import ModRow

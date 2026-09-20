@@ -145,7 +145,7 @@ def build_equipment_filters(
 
 @dataclass
 class QueryOptions:
-    status: str = "online"
+    status: str = "securable"
     rarity: str | None = None  # "unique" / "nonunique" / None
     use_type: bool = True
     use_name: bool = True
@@ -274,7 +274,7 @@ def build_query(
     stats_filters = [mf.to_filter() for mf in mod_filters if mf.enabled and mf.stat_id]
 
     query: dict[str, Any] = {
-        "status": {"option": options.status or "online"},
+        "status": {"option": options.status or "securable"},
         "stats": [{"type": "and", "filters": stats_filters}],
     }
 
@@ -337,7 +337,7 @@ def build_query(
 
 def default_options_for(item: ParsedItem, cfg_search: dict) -> QueryOptions:
     """Разумные настройки поиска под конкретный предмет."""
-    opts = QueryOptions(status=cfg_search.get("status", "online"))
+    opts = QueryOptions(status=cfg_search.get("status", "securable"))
     opts.category = item.category
 
     if item.is_unique:

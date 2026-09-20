@@ -46,6 +46,14 @@ from .workers import run_async
 
 log = logging.getLogger(__name__)
 
+# Подписи и значения для query.status.option (см. комментарий у виджета)
+STATUS_OPTIONS: list[tuple[str, str]] = [
+    ("Instant Buyout", "securable"),
+    ("In Person", "onlineleague"),
+    ("IB + In Person", "available"),
+    ("Любые (офлайн)", "any"),
+]
+
 
 class PriceCheckOverlay(QWidget):
     """Полупрозрачное окно поверх игры с модами предмета и результатами поиска."""
@@ -176,12 +184,16 @@ class PriceCheckOverlay(QWidget):
 
         self.chk_ilvl = QCheckBox("iLvl ≥")
         self.spn_ilvl = QSpinBox()
+        self.spn_ilvl.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.spn_ilvl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spn_ilvl.setRange(0, 100)
         filt.addWidget(self.chk_ilvl, 0, 2)
         filt.addWidget(self.spn_ilvl, 0, 3)
 
         self.chk_quality = QCheckBox("Качество ≥")
         self.spn_quality = QSpinBox()
+        self.spn_quality.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.spn_quality.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spn_quality.setRange(0, 40)
         filt.addWidget(self.chk_quality, 0, 4)
         filt.addWidget(self.spn_quality, 0, 5)
@@ -195,6 +207,8 @@ class PriceCheckOverlay(QWidget):
 
         self.chk_sockets = QCheckBox("Сокеты ≥")
         self.spn_sockets = QSpinBox()
+        self.spn_sockets.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self.spn_sockets.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spn_sockets.setRange(0, 6)
         filt.addWidget(self.chk_sockets, 1, 2)
         filt.addWidget(self.spn_sockets, 1, 3)
@@ -203,10 +217,23 @@ class PriceCheckOverlay(QWidget):
         self.chk_type.setToolTip("Искать только такую же базу предмета")
         filt.addWidget(self.chk_type, 1, 4)
 
+        # Способ покупки. Значения — то, что уходит в query.status.option:
+        #   securable    — Instant Buyout, забирается из лавки без продавца
+        #   onlineleague — In Person, продавец онлайн в этой лиге
+        #   available    — и то и другое
+        #   any          — вообще всё, включая офлайн
         self.cmb_status = QComboBox()
-        self.cmb_status.addItem("онлайн", "online")
-        self.cmb_status.addItem("все", "any")
-        filt.addWidget(self.cmb_status, 1, 5)
+        for label, value in STATUS_OPTIONS:
+            self.cmb_status.addItem(label, value)
+        self.cmb_status.setToolTip(
+            "Instant Buyout — моментальная покупка из лавки, продавец не нужен.\n"
+            "In Person — обычная сделка, продавец онлайн в этой лиге.\n"
+            "Последний вариант показывает и офлайн-лоты: цены видно, купить нельзя."
+        )
+        # Отдельной строкой: подписи длинные, в узкую ячейку не влезают
+        lbl_status = QLabel("Покупка")
+        filt.addWidget(lbl_status, 2, 0)
+        filt.addWidget(self.cmb_status, 2, 1, 1, 3)
 
         root.addLayout(filt)
 
@@ -272,7 +299,7 @@ class PriceCheckOverlay(QWidget):
             widget.toggled.connect(self._sync_options)
         self.cmb_rarity.currentIndexChanged.connect(self._sync_options)
         self.cmb_corrupted.currentIndexChanged.connect(self._sync_options)
-        self.cmb_status.currentIndexChanged.connect(self._sync_options)
+        self.cmb_status.currentIndexChanged.connect(self._on_status_changed)
         for spin in (self.spn_ilvl, self.spn_quality, self.spn_sockets):
             spin.valueChanged.connect(self._sync_options)
 
@@ -524,6 +551,14 @@ class PriceCheckOverlay(QWidget):
         for w in blockers:
             w.blockSignals(False)
 
+    def _on_status_changed(self) -> None:
+        """Способ покупки запоминается — он редко меняется от вещи к вещи."""
+        value = self.cmb_status.currentData() or "securable"
+        if value != self.ctx.cfg.get("search.status"):
+            self.ctx.cfg.set("search.status", value)
+            self.ctx.cfg.save()
+        self._sync_options()
+
     def _sync_options(self) -> None:
         self.options.rarity = self.cmb_rarity.currentData() if self.chk_rarity.isChecked() else None
         self.options.item_level_min = self.spn_ilvl.value() if self.chk_ilvl.isChecked() else None
@@ -533,7 +568,7 @@ class PriceCheckOverlay(QWidget):
         )
         self.options.sockets_min = self.spn_sockets.value() if self.chk_sockets.isChecked() else None
         self.options.use_type = self.chk_type.isChecked()
-        self.options.status = self.cmb_status.currentData() or "online"
+        self.options.status = self.cmb_status.currentData() or "securable"
 
     # --------------------------------------------------------------- поиск
     def search(self) -> None:

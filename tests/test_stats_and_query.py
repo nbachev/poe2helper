@@ -178,6 +178,39 @@ class TestQuery(unittest.TestCase):
             query["query"]["filters"]["type_filters"]["filters"]["rarity"]["option"], "unique"
         )
 
+    def test_default_sale_type_is_instant_buyout(self):
+        """По умолчанию ищем только то, что можно купить моментально."""
+        query = build_query(None, [], QueryOptions())
+        self.assertEqual(query["query"]["status"], {"option": "securable"})
+
+    def test_sale_type_comes_from_config(self):
+        item = parse_item(RARE_GLOVES)
+        opts = default_options_for(item, {"status": "onlineleague"})
+        self.assertEqual(opts.status, "onlineleague")
+        query = build_query(item, [], opts)
+        self.assertEqual(query["query"]["status"], {"option": "onlineleague"})
+
+    def test_sale_type_values_are_valid_api_options(self):
+        """Подписи в оверлее обязаны ссылаться на реальные значения API.
+
+        Список взят из типа listingType в Exiled-Exchange-2, который
+        работает с тем же trade2: any | online | onlineleague |
+        securable | available.
+        """
+        valid = {"any", "online", "onlineleague", "securable", "available"}
+        from poe2helper.config import DEFAULTS
+
+        self.assertIn(DEFAULTS["search"]["status"], valid)
+
+        try:
+            from poe2helper.ui.overlay import STATUS_OPTIONS
+        except ImportError:
+            self.skipTest("PySide6 не установлен")
+        values = [value for _, value in STATUS_OPTIONS]
+        self.assertTrue(set(values) <= valid, f"недопустимые значения: {values}")
+        self.assertEqual(values[0], "securable", "первым идёт вариант по умолчанию")
+        self.assertEqual(len(values), len(set(values)), "значения не должны повторяться")
+
     def test_disabled_mods_are_dropped(self):
         mf_on = ModFilter(stat_id="a", text="a", enabled=True, min_value=5)
         mf_off = ModFilter(stat_id="b", text="b", enabled=False, min_value=5)

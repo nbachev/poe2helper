@@ -40,7 +40,12 @@ DEFAULTS: dict[str, Any] = {
     "language": "ru",
     # --- поиск ---
     "search": {
-        "status": "online",  # online | any
+        # Способ покупки, уходит в query.status.option:
+        #   securable — Instant Buyout, лот забирается из лавки без продавца
+        #   onlineleague — In Person, продавец онлайн в этой лиге
+        #   available — оба варианта сразу
+        #   any — всё подряд, включая офлайн (цены видно, купить нельзя)
+        "status": "securable",
         "default_listings": 20,
         "auto_search_on_open": True,
         # какие категории модов включать в поиск по умолчанию
