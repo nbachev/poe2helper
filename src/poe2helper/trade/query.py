@@ -33,6 +33,7 @@ class ModFilter:
     from_pool: bool = False  # добавлен вручную из пула модов
     affix: str = ""  # «Prefix "Rotund" (Tier: 3)» из расширенного описания
     tier: int | None = None
+    group_id: int = 0  # строки одного аффикса (гибридные моды) делят номер
 
     def to_filter(self) -> dict[str, Any]:
         out: dict[str, Any] = {"id": self.stat_id}
@@ -188,6 +189,7 @@ def build_mod_filters(
                     source_value=value,
                     affix=mod.affix,
                     tier=mod.tier,
+                    group_id=mod.group_id,
                 )
             )
             continue
@@ -204,12 +206,35 @@ def build_mod_filters(
             source_value=value,
             affix=mod.affix,
             tier=mod.tier,
+            group_id=mod.group_id,
         )
         if option_id is None and value is not None:
             lo, hi = suggest_bounds(value, roll_tolerance, min_only)
             mf.min_value, mf.max_value = lo, hi
         out.append(mf)
     return out
+
+
+def group_filters(filters: list[ModFilter]) -> list[list[ModFilter]]:
+    """Собирает части одного аффикса в одну группу, сохраняя порядок.
+
+    Гибридный мод («40% increased Armour» + «+123 to Stun Threshold»)
+    приходит несколькими ModFilter с одинаковым ``group_id`` — в оверлее
+    это должна быть одна строка. Нулевой group_id считается «своей
+    группой» у каждой записи, чтобы старый код и моды из пула не
+    склеивались в кучу.
+    """
+    groups: list[list[ModFilter]] = []
+    index: dict[int, list[ModFilter]] = {}
+    for mod in filters:
+        bucket = index.get(mod.group_id) if mod.group_id else None
+        if bucket is None:
+            bucket = []
+            if mod.group_id:
+                index[mod.group_id] = bucket
+            groups.append(bucket)
+        bucket.append(mod)
+    return groups
 
 
 def _display_text(entry: StatEntry, mod: ItemMod, option_id: int | str | None) -> str:

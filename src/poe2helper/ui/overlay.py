@@ -35,6 +35,7 @@ from ..trade.query import (
     build_mod_filters,
     build_query,
     default_options_for,
+    group_filters,
     suggest_bounds,
 )
 from .addmod import AddModDialog
@@ -312,13 +313,17 @@ class PriceCheckOverlay(QWidget):
             row.setParent(None)
             row.deleteLater()
         self.rows.clear()
-        for mod in self.mod_filters:
-            row = ModRow(mod)
-            row.removed.connect(self._remove_row)
-            row.pick_requested.connect(self._pick_for_row)
-            self.mods_layout.insertWidget(self.mods_layout.count() - 1, row)
-            self.rows.append(row)
+        for group in group_filters(self.mod_filters):
+            self._append_row(group)
         self._adjust_height()
+
+    def _append_row(self, group: list[ModFilter]) -> ModRow:
+        row = ModRow(group)
+        row.removed.connect(self._remove_row)
+        row.pick_requested.connect(self._pick_for_row)
+        self.mods_layout.insertWidget(self.mods_layout.count() - 1, row)
+        self.rows.append(row)
+        return row
 
     def _rebuild_equip_rows(self) -> None:
         for row in self.equip_rows:
@@ -350,8 +355,9 @@ class PriceCheckOverlay(QWidget):
         pass
 
     def _remove_row(self, row: ModRow) -> None:
-        if row.mod in self.mod_filters:
-            self.mod_filters.remove(row.mod)
+        for mod in row.mods:
+            if mod in self.mod_filters:
+                self.mod_filters.remove(mod)
         if row in self.rows:
             self.rows.remove(row)
         row.setParent(None)
@@ -391,6 +397,7 @@ class PriceCheckOverlay(QWidget):
             return
         entry, option = chosen
         text = entry.text.replace("#", option[1]) if option else entry.text
+        next_group = max((m.group_id for m in self.mod_filters), default=0) + 1
         mf = ModFilter(
             stat_id=entry.id,
             text=text,
@@ -398,18 +405,14 @@ class PriceCheckOverlay(QWidget):
             enabled=True,
             option_id=option[0] if option else None,
             from_pool=True,
+            group_id=next_group,
         )
         self.mod_filters.append(mf)
-        row = ModRow(mf)
-        row.removed.connect(self._remove_row)
-        row.pick_requested.connect(self._pick_for_row)
-        self.mods_layout.insertWidget(self.mods_layout.count() - 1, row)
-        self.rows.append(row)
+        self._append_row([mf])
         self._adjust_height()
 
-    def _pick_for_row(self, row: ModRow) -> None:
-        """Ручное сопоставление мода, который не удалось опознать."""
-        mod = row.mod
+    def _pick_for_row(self, row: ModRow, mod: ModFilter) -> None:
+        """Ручное сопоставление части мода, которую не удалось опознать."""
         chosen = self._choose_from_pool(
             initial_query=mod.text, title=f"Чем считать «{mod.text}»?"
         )

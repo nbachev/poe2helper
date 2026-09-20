@@ -146,9 +146,9 @@ class TestUiSmoke(unittest.TestCase):
         self.assertTrue(row.btn_pick.isVisibleTo(row))
 
         seen = []
-        row.pick_requested.connect(seen.append)
+        row.pick_requested.connect(lambda r, m: seen.append((r, m)))
         row.btn_pick.click()
-        self.assertEqual(seen, [row])
+        self.assertEqual(seen, [(row, unmatched)])
 
         # после ручного сопоставления строка оживает
         unmatched.stat_id = "explicit.stat_life"
@@ -190,6 +190,60 @@ class TestUiSmoke(unittest.TestCase):
         for row in runes:
             self.assertEqual(row.tag.text(), "rune")
 
+        overlay.hide()
+        overlay.deleteLater()
+
+    def test_hybrid_mod_is_one_row(self):
+        from fixtures import SHIELD_ADVANCED
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        item = parse_item(SHIELD_ADVANCED)
+        overlay.show_item(item)
+
+        # восемь характеристик, но семь строк — гибрид собран в одну
+        self.assertEqual(len(overlay.mod_filters), len(item.mods))
+        self.assertEqual(len(overlay.rows), 7)
+
+        hybrid = next(r for r in overlay.rows if len(r.mods) > 1)
+        self.assertEqual(len(hybrid.parts), 2)
+        self.assertEqual(
+            [p["mod"].text for p in hybrid.parts],
+            ["40% increased Armour", "+123 to Stun Threshold"],
+        )
+        # галочка одна на обе части
+        hybrid.check.setChecked(True)
+        self.assertTrue(all(m.enabled for m in hybrid.mods if m.matched))
+        hybrid.check.setChecked(False)
+        self.assertFalse(any(m.enabled for m in hybrid.mods))
+
+        # границы у частей независимые
+        hybrid.parts[0]["min"].set_bound(38)
+        hybrid.parts[0]["min"].valueChanged.emit(38)
+        hybrid.parts[1]["min"].set_bound(110)
+        hybrid.parts[1]["min"].valueChanged.emit(110)
+        self.assertEqual(hybrid.mods[0].min_value, 38)
+        self.assertEqual(hybrid.mods[1].min_value, 110)
+
+        # крестик убирает аффикс целиком
+        before = len(overlay.mod_filters)
+        overlay._remove_row(hybrid)
+        self.assertEqual(len(overlay.mod_filters), before - 2)
+        self.assertEqual(len(overlay.rows), 6)
+
+        overlay.hide()
+        overlay.deleteLater()
+
+    def test_shield_name_is_not_the_service_line(self):
+        from fixtures import SHIELD_ADVANCED
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        overlay.show_item(parse_item(SHIELD_ADVANCED))
+        self.assertIn("Carrion Bastion", overlay.lbl_title.text())
+        self.assertNotIn("cannot use", overlay.lbl_title.text().lower())
         overlay.hide()
         overlay.deleteLater()
 

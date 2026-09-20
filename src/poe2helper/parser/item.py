@@ -34,6 +34,13 @@ ANNOTATION_KIND_RE = re.compile(
 ANNOTATION_NAME_RE = re.compile(r'"([^"]+)"')
 ANNOTATION_TIER_RE = re.compile(r"\(\s*Tier:\s*(\d+)\s*\)", re.I)
 
+# Строки, которые игра пишет в шапке вместо имени предмета.
+# Имя и база в этом случае уезжают в следующую секцию.
+HEADER_NOISE_PREFIXES = (
+    "you cannot use this item",
+    "this item is not usable",
+)
+
 ANNOTATION_KIND_MAP = {
     "prefix": "explicit",
     "suffix": "explicit",
@@ -183,6 +190,10 @@ class ItemMod:
     raw: str = ""
     affix: str = ""  # «Prefix "Rotund" (Tier: 3)» из расширенного описания
     tier: int | None = None
+    # Один аффикс может давать несколько строк (гибридные моды вроде
+    # «40% increased Armour» + «+123 to Stun Threshold»). Строки одного
+    # аффикса делят group_id, и оверлей показывает их одной строкой.
+    group_id: int = 0
 
     @property
     def value(self) -> float | None:
@@ -392,26 +403,68 @@ def parse_item(text: str) -> ParsedItem | None:
     if not sections:
         return None
 
-    _parse_header(item, sections[0])
+    rest = _parse_header(item, sections)
 
-    for section in sections[1:]:
-        _parse_section(item, section)
+    state = {"group": 0}
+    for section in rest:
+        _parse_section(item, section, state)
 
     _post_process(item)
     return item
 
 
-def _parse_header(item: ParsedItem, section: list[str]) -> None:
-    rest: list[str] = []
+def _name_lines(section: list[str]) -> list[str]:
+    """Строки секции, которые могут быть именем/базой предмета."""
+    out: list[str] = []
     for line in section:
+        stripped = line.strip()
+        low = stripped.lower()
+        if low.startswith(HEADER_NOISE_PREFIXES):
+            continue
+        if ANNOTATION_RE.match(stripped):
+            continue
+        kv = _split_key_value(stripped)
+        if kv and kv[0].lower() in KNOWN_PROPERTY_KEYS:
+            continue
+        if low in FLAG_LINES:
+            continue
+        out.append(stripped)
+    return out
+
+
+def _parse_header(item: ParsedItem, sections: list[list[str]]) -> list[list[str]]:
+    """Разбирает шапку и возвращает оставшиеся секции.
+
+    Обычно имя и база лежат в первой секции вместе с Item Class и Rarity.
+    Но если игра вставила туда служебную строку («You cannot use this
+    item…»), имя с базой уезжают в следующую секцию — тогда забираем её,
+    иначе именем предмета станет предупреждение, а настоящее имя попадёт
+    в список модов.
+    """
+    head = sections[0]
+    rest_sections = sections[1:]
+
+    rest: list[str] = []
+    for line in head:
         kv = _split_key_value(line)
         if kv and kv[0].lower() == "item class":
             item.item_class = kv[1]
         elif kv and kv[0].lower() == "rarity":
             item.rarity = kv[1]
-        else:
+        elif not line.strip().lower().startswith(HEADER_NOISE_PREFIXES):
             rest.append(line.strip())
 
+    if not rest and rest_sections:
+        candidate = _name_lines(rest_sections[0])
+        if candidate:
+            rest = candidate
+            rest_sections = rest_sections[1:]
+
+    _apply_name(item, rest)
+    return rest_sections
+
+
+def _apply_name(item: ParsedItem, rest: list[str]) -> None:
     if len(rest) >= 2:
         item.name = rest[0]
         item.base_type = rest[1]
@@ -463,7 +516,7 @@ def _parse_annotation(inner: str) -> dict:
     return info
 
 
-def _parse_section(item: ParsedItem, section: list[str]) -> None:
+def _parse_section(item: ParsedItem, section: list[str], state: dict) -> None:
     # Секция-флаг из одной строки
     if len(section) == 1:
         low = section[0].strip().lower()
@@ -472,33 +525,42 @@ def _parse_section(item: ParsedItem, section: list[str]) -> None:
             return
 
     pending: dict = {}
+    under_annotation = False
+
     for line in section:
         stripped = line.strip()
         low = stripped.lower()
 
         annotation = ANNOTATION_RE.match(stripped)
         if annotation:
-            # Справочная строка расширенного описания: запоминаем и ждём
-            # следующую строку — это и будет сам мод.
+            # Справочная строка расширенного описания. Всё, что идёт после
+            # неё до следующей такой строки, — один аффикс: у гибридных
+            # модов это две строки и более.
             pending = _parse_annotation(annotation.group(1))
+            under_annotation = True
+            state["group"] += 1
             continue
 
         if low in FLAG_LINES:
             _apply_flag(item, low)
-            pending = {}
+            pending, under_annotation = {}, False
             continue
 
         kv = _split_key_value(stripped)
         if kv and kv[0].lower() in KNOWN_PROPERTY_KEYS:
             _apply_property(item, kv[0], kv[1])
-            pending = {}
+            pending, under_annotation = {}, False
             continue
 
         # Всё остальное считаем модификатором
         mod = _make_mod(stripped, pending)
-        pending = {}
-        if mod is not None:
-            item.mods.append(mod)
+        if mod is None:
+            continue
+        if not under_annotation:
+            # Без аннотации каждая строка сама по себе
+            state["group"] += 1
+        mod.group_id = state["group"]
+        item.mods.append(mod)
 
 
 def _apply_flag(item: ParsedItem, low: str) -> None:
@@ -625,15 +687,9 @@ def _post_process(item: ParsedItem) -> None:
     if not item.identified:
         item.mods = [m for m in item.mods if m.kind != "explicit"]
 
-    # Уникальные: последний блок — художественный текст (flavour).
-    # Эвристика: строки без цифр и без ключевых слов модов, идущие подряд в конце.
-    if item.is_unique and item.mods:
-        while item.mods:
-            last = item.mods[-1]
-            if last.values:
-                break
-            words = last.text.lower()
-            if any(k in words for k in ("increase", "reduce", "more ", "less ", "to ", "adds", "grants", "gain")):
-                break
-            item.mods.pop()
-        # flavour как правило длиннее и с заглавной буквы без цифр — оставляем как есть
+    # Раньше здесь отбрасывался «художественный текст» уникальных предметов
+    # по эвристике «нет цифр и нет ключевых слов». Она била и по настоящим
+    # модам вроде «Cannot be Frozen», поэтому убрана: лучше показать лишнюю
+    # строку, которую видно как неопознанную и можно снять крестиком,
+    # чем молча потерять мод.
+    return

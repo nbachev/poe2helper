@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -57,74 +58,127 @@ class ModRow(QWidget):
 
     changed = Signal()
     removed = Signal(object)
-    pick_requested = Signal(object)  # просят выбрать мод из пула вручную
+    pick_requested = Signal(object, object)  # (строка, конкретная часть мода)
 
-    def __init__(self, mod: ModFilter, parent: QWidget | None = None) -> None:
+    def __init__(self, mods, parent: QWidget | None = None) -> None:
+        """``mods`` — один ModFilter либо список частей одного аффикса.
+
+        Гибридный мод («40% increased Armour» + «+123 to Stun Threshold»)
+        приходит сюда списком: галочка и крестик у него общие, а границы
+        min/max — свои у каждой части, потому что торговая площадка ищет
+        по каждой характеристике отдельно.
+        """
         super().__init__(parent)
-        self.mod = mod
+        self.mods: list[ModFilter] = [mods] if isinstance(mods, ModFilter) else list(mods)
+        self.mod = self.mods[0]  # для кода, которому нужна одна «главная» часть
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(2, 1, 2, 1)
         layout.setSpacing(6)
 
+        top = Qt.AlignmentFlag.AlignTop if len(self.mods) > 1 else Qt.AlignmentFlag.AlignVCenter
+
         self.check = QCheckBox()
+        self.check.setToolTip("Включить аффикс в поиск")
         self.check.toggled.connect(self._on_toggle)
-        layout.addWidget(self.check)
+        layout.addWidget(self.check, 0, top)
 
-        self.label = QLabel()
-        self.label.setWordWrap(False)
-        self.label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        layout.addWidget(self.label, 1)
+        stack = QVBoxLayout()
+        stack.setContentsMargins(0, 0, 0, 0)
+        stack.setSpacing(1)
+        layout.addLayout(stack, 1)
 
-        self.tag = QLabel()
-        self.tag.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
-        self.tag.setFixedWidth(30)
-        layout.addWidget(self.tag)
+        self.parts: list[dict] = []
+        for mod in self.mods:
+            self.parts.append(self._build_part(mod, stack))
 
-        # Кнопка ручного выбора: показывается, когда мод не опознан
-        self.btn_pick = QPushButton("🔍")
-        self.btn_pick.setObjectName("Flat")
-        self.btn_pick.setFixedWidth(24)
-        self.btn_pick.setToolTip("Выбрать подходящий мод из пула вручную")
-        self.btn_pick.clicked.connect(lambda: self.pick_requested.emit(self))
-        layout.addWidget(self.btn_pick)
-
-        self.min_spin = BoundSpin("мин")
-        self.min_spin.valueChanged.connect(self._on_value)
-        layout.addWidget(self.min_spin)
-
-        self.max_spin = BoundSpin("макс")
-        self.max_spin.valueChanged.connect(self._on_value)
-        layout.addWidget(self.max_spin)
+        # ссылки на виджеты первой части — совместимость со старым кодом
+        first = self.parts[0]
+        self.label = first["label"]
+        self.tag = first["tag"]
+        self.min_spin = first["min"]
+        self.max_spin = first["max"]
+        self.btn_pick = first["pick"]
 
         self.btn_remove = QPushButton("✕")
         self.btn_remove.setObjectName("Flat")
         self.btn_remove.setFixedWidth(22)
         self.btn_remove.setToolTip("Убрать мод из списка")
         self.btn_remove.clicked.connect(lambda: self.removed.emit(self))
-        layout.addWidget(self.btn_remove)
+        layout.addWidget(self.btn_remove, 0, top)
 
         self.refresh()
 
-    def refresh(self) -> None:
-        """Приводит виджеты в соответствие с состоянием ModFilter."""
-        mod = self.mod
-        editable = mod.matched and mod.option_id is None
+    def _build_part(self, mod: ModFilter, stack: QVBoxLayout) -> dict:
+        line = QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(6)
 
+        label = QLabel()
+        label.setWordWrap(False)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        line.addWidget(label, 1)
+
+        tag = QLabel()
+        tag.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px;")
+        tag.setFixedWidth(30)
+        line.addWidget(tag)
+
+        # Кнопка ручного выбора: показывается, когда часть не опознана
+        pick = QPushButton("🔍")
+        pick.setObjectName("Flat")
+        pick.setFixedWidth(24)
+        pick.setToolTip("Выбрать подходящий мод из пула вручную")
+        pick.clicked.connect(lambda _=False, m=mod: self.pick_requested.emit(self, m))
+        line.addWidget(pick)
+
+        min_spin = BoundSpin("мин")
+        min_spin.valueChanged.connect(lambda _=0.0, m=mod: self._on_value(m))
+        line.addWidget(min_spin)
+
+        max_spin = BoundSpin("макс")
+        max_spin.valueChanged.connect(lambda _=0.0, m=mod: self._on_value(m))
+        line.addWidget(max_spin)
+
+        stack.addLayout(line)
+        return {"mod": mod, "label": label, "tag": tag, "pick": pick, "min": min_spin, "max": max_spin}
+
+    # ------------------------------------------------------------- состояние
+    @property
+    def matched(self) -> bool:
+        return any(m.matched for m in self.mods)
+
+    @property
+    def enabled(self) -> bool:
+        return any(m.enabled and m.matched for m in self.mods)
+
+    def refresh(self) -> None:
+        """Приводит виджеты в соответствие с состоянием частей."""
         self.check.blockSignals(True)
-        self.check.setChecked(mod.enabled and mod.matched)
-        self.check.setEnabled(mod.matched)
+        self.check.setChecked(self.enabled)
+        self.check.setEnabled(self.matched)
         self.check.blockSignals(False)
 
-        self.label.setText(self._label_text())
-        if mod.tier:
-            self.tag.setText(f"T{mod.tier}")  # тир аффикса информативнее вида мода
-        else:
-            self.tag.setText(_kind_short(mod.kind) if mod.matched else "—")
-        self.btn_pick.setVisible(not mod.matched)
+        for index, part in enumerate(self.parts):
+            self._refresh_part(part, first=index == 0)
 
-        for spin, value in ((self.min_spin, mod.min_value), (self.max_spin, mod.max_value)):
+    def _refresh_part(self, part: dict, first: bool) -> None:
+        mod = part["mod"]
+        editable = mod.matched and mod.option_id is None
+
+        part["label"].setText(mod.text)
+        # Тир относится ко всему аффиксу, поэтому показываем его один раз
+        if first and mod.tier:
+            part["tag"].setText(f"T{mod.tier}")
+        elif first:
+            part["tag"].setText(_kind_short(mod.kind) if mod.matched else "—")
+        else:
+            part["tag"].setText("" if mod.matched else "—")
+        part["pick"].setVisible(not mod.matched)
+
+        for key, value in (("min", mod.min_value), ("max", mod.max_value)):
+            spin = part[key]
             spin.blockSignals(True)
             spin.set_bound(value)
             spin.setEnabled(editable)
@@ -137,43 +191,39 @@ class ModRow(QWidget):
                 "Мод не опознан — в поиск не пойдёт.\n"
                 "Нажми 🔍, чтобы выбрать подходящий из пула вручную."
             )
-        if getattr(mod, "affix", ""):
+        if mod.affix:
             tip += f"\n{mod.affix}"
-        self.label.setToolTip(tip)
-        self._sync_style()
+        if len(self.mods) > 1:
+            tip += "\nГибридный мод: части ищутся отдельно, галочка общая."
+        part["label"].setToolTip(tip)
+        self._style_part(part)
 
-    # --------------------------------------------------------------- helpers
-    def _label_text(self) -> str:
-        text = self.mod.text
-        if self.mod.source_value is not None and "#" not in text:
-            return text
-        return text
-
-    def _on_toggle(self, checked: bool) -> None:
-        self.mod.enabled = checked
-        self._sync_style()
-        self.changed.emit()
-
-    def _on_value(self) -> None:
-        self.mod.min_value = self.min_spin.bound()
-        self.mod.max_value = self.max_spin.bound()
-        self.changed.emit()
-
-    def _sync_style(self) -> None:
-        if not self.mod.matched:
-            color = COLORS["text_dim"]
-        elif self.mod.enabled:
-            color = COLORS["text"]
-        else:
-            color = COLORS["text_dim"]
-        weight = "600" if self.mod.enabled else "400"
+    def _style_part(self, part: dict) -> None:
+        mod = part["mod"]
+        color = COLORS["text"] if (mod.enabled and mod.matched) else COLORS["text_dim"]
+        weight = "600" if (mod.enabled and mod.matched) else "400"
         style = f"color: {color}; font-weight: {weight};"
-        if not self.mod.matched:
+        if not mod.matched:
             style += " font-style: italic;"
-        self.label.setStyleSheet(style)
+        part["label"].setStyleSheet(style)
+
+    # --------------------------------------------------------------- события
+    def _on_toggle(self, checked: bool) -> None:
+        for mod in self.mods:
+            if mod.matched:
+                mod.enabled = checked
+        for part in self.parts:
+            self._style_part(part)
+        self.changed.emit()
+
+    def _on_value(self, mod: ModFilter) -> None:
+        part = next(p for p in self.parts if p["mod"] is mod)
+        mod.min_value = part["min"].bound()
+        mod.max_value = part["max"].bound()
+        self.changed.emit()
 
     def set_enabled_state(self, enabled: bool) -> None:
-        if not self.mod.matched:
+        if not self.matched:
             return
         self.check.setChecked(enabled)
 

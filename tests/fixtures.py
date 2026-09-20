@@ -183,6 +183,46 @@ Item Level: 80
 120(110-129)% increased Physical Damage
 """
 
+# Ещё один реальный буфер. Здесь две особенности:
+#  1. Игра вставила служебную строку туда, где обычно имя предмета,
+#     а имя с базой уехали в следующую секцию.
+#  2. Аффикс «Mammoth's» гибридный — одна аннотация, две строки статов.
+SHIELD_ADVANCED = """Item Class: Shields
+Rarity: Rare
+You cannot use this item. Its stats will be ignored
+--------
+Carrion Bastion
+Tawhoan Tower Shield
+--------
+Quality: +20% (augmented)
+Block chance: 26%
+Armour: 1480 (augmented)
+--------
+Requires: Level 80, 115 Str
+--------
+Sockets: S
+--------
+Item Level: 82
+--------
+18% increased Armour, Evasion and Energy Shield (rune)
+--------
+Grants Skill: Raise Shield
+--------
+{ Prefix Modifier "Enveloped" (Tier: 3) — Armour }
++216(191-221) to Armour
+{ Prefix Modifier "Impregnable" (Tier: 2) — Armour }
+99(92-100)% increased Armour
+{ Prefix Modifier "Mammoth's" (Tier: 1) }
+40(39-42)% increased Armour
++123(95-136) to Stun Threshold
+{ Suffix Modifier "of Granite Skin" (Tier: 5) }
++122(98-124) to Stun Threshold
+{ Suffix Modifier "of the Maelstrom" (Tier: 3) — Elemental, Lightning, Resistance }
++35(31-35)% to Lightning Resistance
+{ Suffix Modifier "of the Gorilla" (Tier: 4) — Attribute }
++21(21-24) to Strength
+"""
+
 NOT_AN_ITEM = "просто текст из буфера обмена, никакого предмета тут нет"
 
 
