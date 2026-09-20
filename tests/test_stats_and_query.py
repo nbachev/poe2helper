@@ -81,6 +81,44 @@ class TestStatsDB(unittest.TestCase):
         self.assertEqual(found[0].id, "explicit.stat_attack_speed")
 
 
+class TestFixtureCoverage(unittest.TestCase):
+    """Пул модов в фикстурах обязан покрывать моды всех предметов-фикстур.
+
+    Если какой-то мод не опознаётся, он выпадает из расчётов — и тесты,
+    которые на нём завязаны, ведут себя не как настоящая программа
+    с полным пулом от торговой площадки. Такие расхождения раньше
+    всплывали только в CI, на Qt-тестах. Этот сторож ловит их сразу.
+    """
+
+    def test_every_fixture_mod_is_in_the_pool(self):
+        import fixtures
+
+        db = StatsDB.from_api_payload(STATS_PAYLOAD)
+        names = [
+            name
+            for name in dir(fixtures)
+            if name.isupper()
+            and isinstance(getattr(fixtures, name), str)
+            and "Rarity:" in getattr(fixtures, name)
+        ]
+        self.assertTrue(names, "фикстуры предметов не найдены")
+
+        unmatched: list[str] = []
+        for name in sorted(names):
+            item = parse_item(getattr(fixtures, name))
+            if item is None or item.is_currency_like:
+                continue  # у валюты моды — это описание эффекта, stat-id им не положен
+            for mod in item.mods:
+                if db.match(mod.text, mod.kind)[0] is None:
+                    unmatched.append(f"{name}: [{mod.kind}] {mod.text}")
+
+        self.assertEqual(
+            unmatched,
+            [],
+            "добавь эти моды в STATS_PAYLOAD:\n  " + "\n  ".join(unmatched),
+        )
+
+
 class TestQuery(unittest.TestCase):
     def setUp(self):
         self.db = StatsDB.from_api_payload(STATS_PAYLOAD)

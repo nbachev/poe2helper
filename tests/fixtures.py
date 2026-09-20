@@ -327,6 +327,33 @@ STATS_PAYLOAD = {
                     "text": "# Life Regeneration per second",
                     "type": "explicit",
                 },
+                {"id": "explicit.stat_armour_flat", "text": "+# to Armour", "type": "explicit"},
+                {
+                    "id": "explicit.stat_stun_threshold",
+                    "text": "+# to Stun Threshold",
+                    "type": "explicit",
+                },
+                {"id": "explicit.stat_strength", "text": "+# to Strength", "type": "explicit"},
+                {
+                    "id": "explicit.stat_adds_phys",
+                    "text": "Adds # to # Physical Damage",
+                    "type": "explicit",
+                },
+                {
+                    "id": "explicit.stat_adds_fire",
+                    "text": "Adds # to # Fire Damage",
+                    "type": "explicit",
+                },
+                {
+                    "id": "explicit.stat_adds_cold",
+                    "text": "Adds # to # Cold Damage",
+                    "type": "explicit",
+                },
+                {
+                    "id": "explicit.stat_adds_lightning",
+                    "text": "Adds # to # Lightning Damage",
+                    "type": "explicit",
+                },
                 {"id": "explicit.stat_mana", "text": "+# to maximum Mana", "type": "explicit"},
                 {
                     "id": "explicit.stat_allocates",
@@ -349,7 +376,12 @@ STATS_PAYLOAD = {
                     "id": "implicit.stat_all_attributes",
                     "text": "+# to all Attributes",
                     "type": "implicit",
-                }
+                },
+                {
+                    "id": "implicit.stat_damage",
+                    "text": "#% increased Damage",
+                    "type": "implicit",
+                },
             ],
         },
         {
@@ -364,6 +396,11 @@ STATS_PAYLOAD = {
                 {
                     "id": "rune.stat_movement_speed",
                     "text": "#% increased Movement Speed",
+                    "type": "rune",
+                },
+                {
+                    "id": "rune.stat_hybrid_defences",
+                    "text": "#% increased Armour, Evasion and [EnergyShield|Energy Shield]",
                     "type": "rune",
                 },
             ],
