@@ -105,6 +105,7 @@ class TestUiSmoke(unittest.TestCase):
 
     def test_overlay_shows_equipment_rows(self):
         from fixtures import RARE_BOW, RARE_GLOVES
+        from poe2helper.trade.projection import project_from_filters
         from poe2helper.ui.overlay import PriceCheckOverlay
 
         ctx = FakeCtx()
@@ -116,14 +117,33 @@ class TestUiSmoke(unittest.TestCase):
         keys = [r.equip.key for r in overlay.equip_rows]
         self.assertEqual(keys, ["dps", "pdps", "edps", "crit", "aps"])
 
+        item = parse_item(RARE_BOW)
         pdps_row = next(r for r in overlay.equip_rows if r.equip.key == "pdps")
         self.assertTrue(pdps_row.check.isChecked())
-        self.assertEqual(pdps_row.min_spin.bound(), 78.8)
+
+        # Значение пересчитано по выбранным модам, а не взято сырым.
+        # Ожидание считаем из той же функции, что и код, — иначе тест
+        # протухнет при следующей правке математики.
+        expected = project_from_filters(item, overlay.mod_filters).values["pdps"]
+        self.assertAlmostEqual(pdps_row.min_spin.bound(), round(expected, 1), places=1)
+        self.assertLess(
+            pdps_row.min_spin.bound(),
+            item.equip.pdps,
+            "границы модов ниже роллов, значит и ДПС должен выйти ниже",
+        )
+
+        # С выключенным пересчётом — ровно то, что показывает предмет
+        ctx.cfg.set("search.equipment_from_mods", False)
+        overlay.show_item(item)
+        raw_row = next(r for r in overlay.equip_rows if r.equip.key == "pdps")
+        self.assertFalse(overlay.chk_equip_auto.isChecked())
+        self.assertEqual(raw_row.min_spin.bound(), item.equip.pdps)
+        ctx.cfg.set("search.equipment_from_mods", True)
 
         # правка границы доезжает до модели
-        pdps_row.min_spin.set_bound(90)
-        pdps_row.min_spin.valueChanged.emit(90)
-        self.assertEqual(pdps_row.equip.min_value, 90)
+        raw_row.min_spin.set_bound(90)
+        raw_row.min_spin.valueChanged.emit(90)
+        self.assertEqual(raw_row.equip.min_value, 90)
 
         # «Снять все» гасит и параметры вещи
         overlay._set_all(False)

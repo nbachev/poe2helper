@@ -290,6 +290,14 @@ class PriceCheckOverlay(QWidget):
             roll_tolerance=float(cfg_search.get("roll_tolerance", 0.1)),
             min_only=bool(cfg_search.get("use_min_only", True)),
         )
+        # Ручное отключение пересчёта действует на текущий предмет,
+        # а не навсегда: для нового предмета возвращаем настройку.
+        self.chk_equip_auto.blockSignals(True)
+        self.chk_equip_auto.setChecked(
+            bool(self.ctx.cfg.get("search.equipment_from_mods", True))
+        )
+        self.chk_equip_auto.blockSignals(False)
+
         self._rebuild_rows()
         self._rebuild_equip_rows()
         self._fill_header()
