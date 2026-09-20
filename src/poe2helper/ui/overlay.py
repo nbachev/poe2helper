@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from ..parser.item import ParsedItem
 from ..trade.client import SearchResult
+from ..trade.projection import project_from_filters
 from ..trade.query import (
     ModFilter,
     QueryOptions,
@@ -130,9 +131,24 @@ class PriceCheckOverlay(QWidget):
         equip_outer = QVBoxLayout(self.equip_box)
         equip_outer.setContentsMargins(0, 2, 0, 2)
         equip_outer.setSpacing(2)
+        equip_header = QHBoxLayout()
         self.lbl_equip = QLabel("Параметры вещи")
         self.lbl_equip.setObjectName("Section")
-        equip_outer.addWidget(self.lbl_equip)
+        equip_header.addWidget(self.lbl_equip)
+        equip_header.addStretch(1)
+        self.chk_equip_auto = QCheckBox("считать по модам")
+        self.chk_equip_auto.setToolTip(
+            "Пересчитывать броню, ДПС и прочее с учётом выбранных модов.\n"
+            "Плоские прибавки умножаются на проценты предмета, проценты\n"
+            "складываются — как в самой игре.\n"
+            "Ручная правка любого поля выключает пересчёт."
+        )
+        self.chk_equip_auto.setChecked(
+            bool(self.ctx.cfg.get("search.equipment_from_mods", True))
+        )
+        self.chk_equip_auto.toggled.connect(self._on_equip_auto_toggled)
+        equip_header.addWidget(self.chk_equip_auto)
+        equip_outer.addLayout(equip_header)
         self.equip_grid = QGridLayout()
         self.equip_grid.setHorizontalSpacing(10)
         self.equip_grid.setVerticalSpacing(1)
@@ -321,6 +337,7 @@ class PriceCheckOverlay(QWidget):
         row = ModRow(group)
         row.removed.connect(self._remove_row)
         row.pick_requested.connect(self._pick_for_row)
+        row.changed.connect(self._on_mod_changed)
         self.mods_layout.insertWidget(self.mods_layout.count() - 1, row)
         self.rows.append(row)
         return row
@@ -345,14 +362,38 @@ class PriceCheckOverlay(QWidget):
         # Две колонки: строк получается вдвое меньше, оверлей не разрастается.
         for index, equip in enumerate(filters):
             row = EquipRow(equip)
-            row.changed.connect(self._on_equip_changed)
+            row.value_edited.connect(self._on_equip_edited)
             self.equip_grid.addWidget(row, index // 2, index % 2)
             self.equip_rows.append(row)
 
-    def _on_equip_changed(self) -> None:
-        # Значения уже записаны в EquipFilter самой строкой — тут только
-        # точка расширения, если понадобится реагировать на правки.
-        pass
+        self._recalc_equipment()
+
+    def _on_equip_edited(self) -> None:
+        """Ручная правка границы отменяет автопересчёт, чтобы не спорить."""
+        if self.chk_equip_auto.isChecked():
+            self.chk_equip_auto.blockSignals(True)
+            self.chk_equip_auto.setChecked(False)
+            self.chk_equip_auto.blockSignals(False)
+
+    def _on_equip_auto_toggled(self, checked: bool) -> None:
+        self.ctx.cfg.set("search.equipment_from_mods", checked)
+        if checked:
+            self._recalc_equipment()
+
+    def _on_mod_changed(self) -> None:
+        self._recalc_equipment()
+
+    def _recalc_equipment(self) -> None:
+        """Подставляет в параметры вещи значения с учётом выбранных модов."""
+        if self.item is None or not self.equip_rows:
+            return
+        if not self.chk_equip_auto.isChecked():
+            return
+        projection = project_from_filters(self.item, self.mod_filters)
+        for row in self.equip_rows:
+            key = row.equip.key
+            if key in projection.values:
+                row.apply_projection(projection.values[key], projection.explain.get(key, ""))
 
     def _remove_row(self, row: ModRow) -> None:
         for mod in row.mods:

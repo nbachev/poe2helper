@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..trade.query import ModFilter
+from ..trade.query import LOWER_IS_BETTER, ModFilter
 from .style import COLORS
 
 NO_VALUE = -99999.0
@@ -167,7 +167,11 @@ class ModRow(QWidget):
         mod = part["mod"]
         editable = mod.matched and mod.option_id is None
 
-        part["label"].setText(mod.text)
+        text = mod.text
+        if mod.range_text:
+            # Разброс тира видно сразу, без наведения мыши
+            text += f"   ({mod.range_text})"
+        part["label"].setText(text)
         # Тир относится ко всему аффиксу, поэтому показываем его один раз
         if first and mod.tier:
             part["tag"].setText(f"T{mod.tier}")
@@ -193,6 +197,10 @@ class ModRow(QWidget):
             )
         if mod.affix:
             tip += f"\n{mod.affix}"
+        if mod.range_text:
+            tip += f"\nРазброс тира: {mod.range_text}"
+            if mod.roll_percent is not None:
+                tip += f" · ролл {mod.roll_percent:.0f}%"
         if len(self.mods) > 1:
             tip += "\nГибридный мод: части ищутся отдельно, галочка общая."
         part["label"].setToolTip(tip)
@@ -232,6 +240,7 @@ class EquipRow(QWidget):
     """Строка параметра вещи: броня, ДПС, крит и т. п."""
 
     changed = Signal()
+    value_edited = Signal()  # границу правил руками, а не пересчёт по модам
 
     def __init__(self, equip, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -272,11 +281,40 @@ class EquipRow(QWidget):
         self.equip.min_value = self.min_spin.bound()
         self.equip.max_value = self.max_spin.bound()
         self.changed.emit()
+        self.value_edited.emit()
 
     def _sync_style(self) -> None:
         color = COLORS["text"] if self.equip.enabled else COLORS["text_dim"]
         weight = "600" if self.equip.enabled else "400"
         self.check.setStyleSheet(f"color: {color}; font-weight: {weight};")
+
+    def refresh(self) -> None:
+        """Синхронизирует виджеты с моделью, не поднимая сигналов."""
+        self.check.blockSignals(True)
+        self.check.setChecked(self.equip.enabled)
+        self.check.blockSignals(False)
+        for spin, value in ((self.min_spin, self.equip.min_value), (self.max_spin, self.equip.max_value)):
+            spin.blockSignals(True)
+            spin.set_bound(value)
+            spin.blockSignals(False)
+        self._sync_style()
+
+    def apply_projection(self, value: float | None, explain: str = "") -> None:
+        """Подставляет пересчитанное по модам значение.
+
+        Для перезарядки арбалета меньше — лучше, поэтому там меняется
+        верхняя граница, а не нижняя.
+        """
+        if value is None:
+            return
+        rounded = round(value, self.equip.decimals) if self.equip.decimals else round(value)
+        if self.equip.key in LOWER_IS_BETTER:
+            self.equip.max_value = rounded
+        else:
+            self.equip.min_value = rounded
+        base = f"На предмете: {_fmt_value(self.equip.value, self.equip.decimals)}"
+        self.check.setToolTip(f"{base}\n{explain}" if explain else base)
+        self.refresh()
 
 
 def _fmt_value(value: float, decimals: int) -> str:

@@ -52,6 +52,9 @@ DEFAULTS: dict[str, Any] = {
         # dps, pdps, edps, crit, aps, reload_time, ar, ev, es, block, spirit).
         # Показываются только те, что у предмета есть.
         "default_equipment_filters": ["pdps"],
+        # Пересчитывать броню/ДПС по выбранным модам. Плоские прибавки
+        # умножаются на проценты предмета, проценты складываются.
+        "equipment_from_mods": True,
         "include_item_level": False,
         "include_quality": False,
         "include_corrupted": True,

@@ -247,6 +247,73 @@ class TestUiSmoke(unittest.TestCase):
         overlay.hide()
         overlay.deleteLater()
 
+    def test_equipment_recalculated_from_mods(self):
+        from fixtures import SHIELD_ADVANCED
+        from poe2helper.trade.projection import project_from_filters
+        from poe2helper.trade.query import ModFilter
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        item = parse_item(SHIELD_ADVANCED)
+        overlay.show_item(item)
+
+        armour_row = next(r for r in overlay.equip_rows if r.equip.key == "ar")
+        expected = project_from_filters(item, overlay.mod_filters).values["ar"]
+        self.assertEqual(armour_row.equip.min_value, round(expected))
+        self.assertEqual(armour_row.min_spin.bound(), round(expected))
+
+        # добавляем плоскую броню — значение обязано вырасти
+        before = armour_row.equip.min_value
+        added = ModFilter(
+            stat_id="explicit.stat_armour_flat", text="+# to Armour",
+            enabled=True, matched=True, min_value=100, group_id=99,
+        )
+        overlay.mod_filters.append(added)
+        overlay._recalc_equipment()
+        self.assertGreater(armour_row.equip.min_value, before)
+
+        overlay.hide()
+        overlay.deleteLater()
+
+    def test_manual_edit_turns_off_auto_recalc(self):
+        from fixtures import SHIELD_ADVANCED
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        overlay.show_item(parse_item(SHIELD_ADVANCED))
+        self.assertTrue(overlay.chk_equip_auto.isChecked())
+
+        armour_row = next(r for r in overlay.equip_rows if r.equip.key == "ar")
+        armour_row.min_spin.set_bound(2000)
+        armour_row.min_spin.valueChanged.emit(2000)
+
+        self.assertFalse(overlay.chk_equip_auto.isChecked())
+        self.assertEqual(armour_row.equip.min_value, 2000)
+
+        # пересчёт выключен, значение пользователя не затирается
+        overlay._recalc_equipment()
+        self.assertEqual(armour_row.equip.min_value, 2000)
+
+        overlay.hide()
+        overlay.deleteLater()
+
+    def test_roll_range_shown_in_row(self):
+        from fixtures import SHIELD_ADVANCED
+        from poe2helper.ui.overlay import PriceCheckOverlay
+
+        ctx = FakeCtx()
+        overlay = PriceCheckOverlay(ctx)
+        overlay.show_item(parse_item(SHIELD_ADVANCED))
+
+        row = next(r for r in overlay.rows if r.mod.text == "+216 to Armour")
+        self.assertIn("191–221", row.label.text())
+        self.assertIn("ролл", row.label.toolTip())
+
+        overlay.hide()
+        overlay.deleteLater()
+
     def test_add_mod_dialog_search(self):
         from poe2helper.ui.addmod import AddModDialog
 

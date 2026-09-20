@@ -34,6 +34,8 @@ class ModFilter:
     affix: str = ""  # «Prefix "Rotund" (Tier: 3)» из расширенного описания
     tier: int | None = None
     group_id: int = 0  # строки одного аффикса (гибридные моды) делят номер
+    range_text: str = ""  # «191–221» — границы ролла для выпавшего тира
+    roll_percent: float | None = None  # насколько удачен ролл внутри тира
 
     def to_filter(self) -> dict[str, Any]:
         out: dict[str, Any] = {"id": self.stat_id}
@@ -190,6 +192,8 @@ def build_mod_filters(
                     affix=mod.affix,
                     tier=mod.tier,
                     group_id=mod.group_id,
+                    range_text=mod.range_text,
+                    roll_percent=mod.roll_percent,
                 )
             )
             continue
@@ -207,6 +211,8 @@ def build_mod_filters(
             affix=mod.affix,
             tier=mod.tier,
             group_id=mod.group_id,
+            range_text=mod.range_text,
+            roll_percent=mod.roll_percent,
         )
         if option_id is None and value is not None:
             lo, hi = suggest_bounds(value, roll_tolerance, min_only)
